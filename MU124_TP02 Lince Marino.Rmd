@@ -1,30 +1,264 @@
 ---
-title: "Instrumentos de Análisis Urbano II - TP 02"
+title: "Instrumentos de Análisis Urbano II - Trabajo Práctico 02"
 author: "Matías Lince Marino"
 date: "2023-09-17"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    number_sections: false
+    theme: flatly
+    code_folding: hide
+warning: FALSE
 ---
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+```{=html}
+<style>
+.notion-link {
+  display: inline-block;
+  padding: 5px 10px;
+  background-color: #f4f4f4;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  text-decoration: none;
+  color: #333;
+  font-weight: bold;
+  font-size: 14px;
+}
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+.notion-icon {
+  margin-left: 5px;
+}
+</style>
+<hide>
 ```
 
-## Including Plots
+## Introducción
 
-You can also embed plots, for example:
+El presente trabajo se presenta como una continuación y profundización del Trabajo Práctico 01, que se puede encontrar en el siguiente enlace: https://github.com/mlincemarino/mu124tp01 (**ver al final que ande en enlace**). 
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+basemipieza <- read.csv2("01-Data/MIPIEZA_BASE-FINAL-03.csv", encoding = "UTF-8", header = TRUE) #Acá leemos el csv. 
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Repasando, y a modo de resumen, en el ejercicio anterior se realizaron las siguientes acciones sobre la base:
+
+- Limpiar la base para seleccionar solo aquellas variables de interés. 
+- Agrupar las observaciones por provincia y convertir los nombres de los códigos para facilitar su interpretación. 
+- Agrupar las observaciones por región y analizar su distribución en torno a los grupos de tratamiento y grupos de control. 
+
+## Pregunta a responder para el Trabajo Práctico 02
+
+Siguiendo el análisis realizado en el Trabajo Práctico 01, y con el fin de poder empezar a visualizar geográficamente la información, responderemos a la siguiente pregunta de investigación: **¿existe un balance entre la cantidad de mujeres inscriptas en Mi Pieza y la cantidad de hogares que residen en barrios populares por provincia?**. Responderemos esta misma pregunta luego con la base específica de mujeres que forman parte de la muestra para la evaluación de impacto realizada. 
+
+### Importación de la nueva base de datos
+
+Para responder a la pregunta, empezaremos por importar la base de datos de barrios populares del Registro Nacional de Barrios Populares. La misma fue descargada del siguiente enlance: https://datosabiertos.desarrollosocial.gob.ar/dataset/registro-nacional-de-barrios-populares el día 17 de septiembre de 2023. 
+
+```{r}
+baserenabap <- read.csv2("01-Data/2022-07-13_renabap_base.csv", encoding = "UTF-8", header = TRUE, sep = ",") #Acá leemos el csv. 
+```
+
+Visualicemos la base. 
+
+```{r}
+library(dplyr)
+library(htmltools)
+library(rmarkdown)
+```
+
+```{r}
+paged_table(baserenabap) #Visualizamos el archivo con la función "paged_table". 
+```
+
+Como podemos ver, tenemos 5687 filas y 77 columnas / campos. 
+
+En base al trabajo anterior, y considerando que nos importa entender la cantidad de barrios que hay por provincia, haremos un trabajo sobre la base que nos permita quedarnos con las variable que más nos importan. 
+
+```{r}
+baserenabap_sel <- select(baserenabap, c("provincia", "cantidad_viviendas_aproximadas", "cantidad_familias_aproximada", "superficie_m2", "personas_genero_masc", "personas_genero_fem", "personas_genero_otrx"))
+```
+
+
+```{r}
+baserenabap_sel <- baserenabap_sel %>%
+  mutate(
+    cantidad_viviendas_aproximadas = as.numeric(cantidad_viviendas_aproximadas),
+    cantidad_familias_aproximada = as.numeric(cantidad_familias_aproximada),
+    superficie_m2 = as.numeric(superficie_m2),
+    personas_genero_masc = as.numeric(personas_genero_masc),
+    personas_genero_fem = as.numeric(personas_genero_fem),
+    personas_genero_otrx = as.numeric(personas_genero_otrx)
+  )
+
+baserenabap_prov <- baserenabap_sel %>%
+  group_by(provincia) %>%
+  summarize(
+    cantidad_barrios = sum(n = n()),
+    cantidad_viviendas_aproximadas = sum(cantidad_viviendas_aproximadas, na.rm = TRUE),
+    cantidad_familias_aproximada = sum(cantidad_familias_aproximada, na.rm = TRUE),
+    superficie_m2 = sum(superficie_m2, na.rm = TRUE),
+    personas_genero_masc = sum(personas_genero_masc, na.rm = TRUE),
+    personas_genero_fem = sum(personas_genero_fem, na.rm = TRUE),
+    personas_genero_otrx = sum(personas_genero_otrx, na.rm = TRUE)
+  )
+```
+
+Tenemos la nueva base con la misma cantidad de observaciones y solo 8 variables. Vamos a proceder a agruparlas por provincia: 
+
+
+Veamos cómo se ve esta nueva base:
+
+```{r}
+paged_table(baserenabap_prov, options(rows.print=25, cols.print=9)) #Visualizamos el archivo con la función "paged_table". 
+```
+#### Visualización gráfica de los datos del RENABAP
+
+Ahora veremos esto gráficamente. 
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+library(geoAr)
+arg_geom <- get_geo(geo = "ARGENTINA", level = "provincia") #Me descargo elemento "Argentina" de "get_geo".
+ggplot(arg_geom) +
+  geom_sf()
+```
+
+```{r}
+# 1. Cambiar el nombre de la variable de "codprov_censo" a "provincia"
+arg_geom <- arg_geom %>%
+  rename(provincia = codprov_censo)
+
+# 2. Convertir los códigos según el listado proporcionado
+codigo_conversion <- c("02" = "CABA", "06" = "BUENOS AIRES", "10" = "CATAMARCA",
+                        "14" = "CORDOBA", "18" = "CORRIENTES", "22" = "CHACO",
+                        "26" = "CHUBUT", "30" = "ENTRE RIOS", "34" = "FORMOSA",
+                        "38" = "JUJUY", "42" = "LA PAMPA", "46" = "LA RIOJA",
+                        "50" = "MENDOZA", "54" = "MISIONES", "58" = "NEUQUEN",
+                        "62" = "RIO NEGRO", "66" = "SALTA", "70" = "SAN JUAN",
+                        "74" = "SAN LUIS", "78" = "SANTA CRUZ", "82" = "SANTA FE",
+                        "86" = "SANTIAGO DEL ESTERO", "90" = "TUCUMAN",
+                        "94" = "TIERRA DEL FUEGO")
+
+arg_geom <- arg_geom %>%
+  mutate(provincia = codigo_conversion[provincia])
+
+# 3. Convertir los nombres de las provincias a mayúsculas y quitar tildes
+arg_geom <- arg_geom %>%
+  mutate(provincia = toupper(stri_trans_nfkd(provincia)))
+```
+
+Ahora que tenemos el mapa de Argentina dividido en provincias y modificado el código de provincia, incluiremos la cantidad de barrios populares que hay en cada uno. Primero modificaremos el valor de cada dato en la base de RENABAP (baserenabap_prov) a los fines de hacerlo compatible con la forma exacta en que se nombran las provincias en geoAr. 
+
+```{r}
+baserenabap_prov <- baserenabap_prov %>%
+    mutate(provincia = ifelse(provincia == "Ciudad Autónoma de Buenos Aires", "CABA", toupper(provincia)))
+```
+
+```{r}
+library(stringi)
+baserenabap_prov <- baserenabap_prov %>%
+  mutate(
+    # Quitar acentos y caracteres especiales sin afectar los espacios
+    provincia = gsub("[^a-zA-Z0-9 ]", "", stri_trans_nfkd(provincia)),
+    provincia = toupper(provincia)  # Convertir a mayúsculas
+  )
+```
+
+Ahora sí podemos unir las bases. 
+
+```{r}
+mapa_completo <- arg_geom %>%
+  right_join(baserenabap_prov, by = "provincia")
+```
+
+Visualicemos la información.
+
+```{r}
+ggplot(mapa_completo)+
+  geom_sf(aes(fill=cantidad_barrios), color="#8a8a8a") +
+  labs(subtitle="Cantidad de BP por provincia")+
+scale_fill_distiller(palette = "Blues", direction=1, guide=guide_legend(direction='horizontal', title.position='top', title.hjust=.5, label.hjust = .5, keywidth = 1, keyheight = 1))+
+  geom_sf_label(aes(label=paste0(cantidad_barrios)), size=2.2)+ 
+  theme_light()+
+  theme(title=element_text(face='bold'),
+        legend.position='bottom')
+```
+
+Como podemos ver, la provincia de Buenos Aires es la que más tiene (casi quintuplicanodo la cantidad de las provincias que le siguen). Ahora veremos el mismo mapa pero con el porcentaje de viviendas que hay en barrios populares en cada provincia por sobre el total. 
+
+```{r}
+# Crear el mapa
+# Calcular el porcentaje de viviendas por provincia
+mapa_completo$porcentaje_viviendas <- round((mapa_completo$cantidad_viviendas_aproximadas / sum(mapa_completo$cantidad_viviendas_aproximadas)) * 100,1)
+
+# Crear el mapa
+ggplot(mapa_completo) +
+  geom_sf(aes(fill = porcentaje_viviendas), color = "#8a8a8a") +
+  labs(subtitle = "Porcentaje de viviendas por provincia") +
+  scale_fill_distiller(
+    palette = "Blues",
+    direction = 1,
+    guide = guide_legend(
+      direction = 'horizontal',
+      title.position = 'top',
+      title.hjust = .5,
+      label.hjust = .5,
+      keywidth = 1,
+      keyheight = 1
+    )
+  ) +
+  geom_sf_label(aes(label = paste0(round(porcentaje_viviendas, 2), "%")), size = 2.2) +  # Mostrar porcentaje con etiquetas
+  theme_light() +
+  theme(
+    title = element_text(face = 'bold'),
+    legend.position = 'bottom'
+  )
+
+```
+Como podemos ver, el 49,11% de las viviendas en barrios populares están ubicadas en Buenos Aires. Además, podemos corroborar que la problemática se concentra en solo 5 provincias. 
+
+Veamos el listado de las provincias ordenadas según esta variable: 
+
+
+```{r}
+# Crear la tabla resumen
+tabla_resumen <- mapa_completo %>%
+  select(provincia, cantidad_barrios, porcentaje_viviendas) %>%
+  arrange(desc(porcentaje_viviendas))
+
+# Mostrar la tabla resumen con paged_table
+tabla_resumen %>%
+  paged_table(options(rows.print = 25))
+```
+En función de esto es posible empezar a identificar algunos datos llamativos:
+
+- CABA tiene solo 50 barrios pero concentra el 7% de las viviendas en barrios populares. - Mendoza tiene varios barrios (317) pero solo tiene el 2,2% de las viviendas en barrios populares. 
+- Buenos Aires concentra bastante menos que la mitad de barrios populares. Sin embargo, tiene casi la mitad de las viviendas del país en barrios populares. 
+- Es probable que la situación de CABA y Buenos Aires se da a la alta concentración de barrios populares densos que tiene el Área Metropolitana de Buenos Aires. 
+
+#### Análisis en comparación con base de la muestra
+
+
+
+
+3. SE ESPERA QUE EN ESTA INSTANCIA SE INCORPORE A LOS TEMAS PROPUESTOS EN EL PRIMER MÓDULO (IMPORTACION, LIMPIEZA Y MANIPULACIÓN DE DATOS) LOS RELATIVOS A DATOS ESPACIALES ESPECIFICAMENTE.
+Para ello, además de documentar la importación de datos de interés a analizar y la etapa de descubrimento, limpieza y procesamiento de la información, se propone la incorporación de una fuente de datos de relevancia geográfica.
+
+
+
+4. SE ESPERA QUE GENEREN (AL MENOS):
+(a) una visualización standard de los datos (esto sería, con geom_ de ggplot2 NO SIG. En este punto, es posible y valorable la utilización de geofacet como alternativa GEO); y
+
+(b) una viz utilizando geom_sf como capa de la VIZ.
+
+
