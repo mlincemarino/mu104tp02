@@ -56,11 +56,13 @@ Repasando, y a modo de resumen, en el ejercicio anterior se realizaron las sigui
 - Agrupar las observaciones por provincia y convertir los nombres de los códigos para facilitar su interpretación. 
 - Agrupar las observaciones por región y analizar su distribución en torno a los grupos de tratamiento y grupos de control. 
 
-## Pregunta a responder para el Trabajo Práctico 02
+## Pregunta a responder
 
 Siguiendo el análisis realizado en el Trabajo Práctico 01, y con el fin de poder empezar a visualizar geográficamente la información, responderemos a la siguiente pregunta de investigación: **¿existe un balance entre la cantidad de mujeres inscriptas en Mi Pieza y la cantidad de hogares que residen en barrios populares por provincia?**. Responderemos esta misma pregunta luego con la base específica de mujeres que forman parte de la muestra para la evaluación de impacto realizada. 
 
-### Importación de la nueva base de datos
+## Desarrollo del ejercicio
+
+### Importación de la nueva base de datos y exploración de los datos 
 
 Para responder a la pregunta, empezaremos por importar la base de datos de barrios populares del Registro Nacional de Barrios Populares. La misma fue descargada del siguiente enlance: https://datosabiertos.desarrollosocial.gob.ar/dataset/registro-nacional-de-barrios-populares el día 17 de septiembre de 2023. 
 
@@ -74,13 +76,30 @@ Visualicemos la base.
 library(dplyr)
 library(htmltools)
 library(rmarkdown)
+library(DT)
 ```
 
 ```{r}
-paged_table(baserenabap) #Visualizamos el archivo con la función "paged_table". 
+# Obtenemos índice de la columna "geometry" a los fines de poder filtrarla del datatable porque, debido a su extensión, complejiza la visualización. 
+geometry_index <- which(names(baserenabap) == "geometry")
+
+# Mostrar el datatable excluyendo la columna "geometry"
+datatable(baserenabap[, -geometry_index]) %>% 
+  formatStyle(
+    names(baserenabap)[-geometry_index],  # Excluir "geometry" del estilo
+    background = 'white',
+    fontWeight = 'bold',
+    style = 'auto',
+    width = '30%',
+    height = 17,
+    fontSize = '12px'
+  )
 ```
 
+
 Como podemos ver, tenemos 5687 filas y 77 columnas / campos. 
+
+### Selección de variables de interés
 
 En base al trabajo anterior, y considerando que nos importa entender la cantidad de barrios que hay por provincia, haremos un trabajo sobre la base que nos permita quedarnos con las variable que más nos importan. 
 
@@ -119,18 +138,26 @@ baserenabap_prov <- baserenabap_sel %>%
 ```{r}
 summary(baserenabap_sel)
 ```
+```{r}
+library(DT) #Instalamos DT para probar otra manera de visualizar el resumen
+resumen <- summary(baserenabap_sel)
+
+datatable(resumen, 
+          options = list(dom = 't', pageLength = 5, paging = TRUE, searching = FALSE),
+          rownames = FALSE)
+```
+
 
 Tenemos la nueva base con la misma cantidad de observaciones y solo 8 variables. Vamos a proceder a agruparlas por provincia: 
-
 
 Veamos cómo se ve esta nueva base:
 
 ```{r}
 paged_table(baserenabap_prov, options(rows.print=25, cols.print=9)) #Visualizamos el archivo con la función "paged_table". 
 ```
-#### Visualización gráfica de los datos del RENABAP
+### Visualización gráfica de los datos del RENABAP
 
-Ahora veremos esto gráficamente. 
+Ahora veremos lo anterior gráficamente. 
 
 ```{r}
 library(tidyverse)
@@ -191,6 +218,8 @@ Ahora sí podemos unir las bases.
 mapa_completo <- arg_geom %>%
   right_join(baserenabap_prov, by = "provincia")
 ```
+
+#### Uso de ggplot
 
 Visualicemos la información.
 
@@ -262,7 +291,7 @@ En función de esto es posible empezar a identificar algunos datos llamativos:
 - Buenos Aires concentra bastante menos que la mitad de barrios populares. Sin embargo, tiene casi la mitad de las viviendas del país en barrios populares. 
 - Es probable que la situación de CABA y Buenos Aires se da a la alta concentración de barrios populares densos que tiene el Área Metropolitana de Buenos Aires. 
 
-#### Análisis en geofacet
+### Visualización en geofacet
 
 Ahora analizaremos esto en geofacet. 
 
@@ -319,11 +348,126 @@ ggplot(mapa_completo_largo, aes(variable, porcentaje, fill = variable)) +
 
 ```
 
+Como podemos observar, algunas provincias presentan diferencias considerables respecto de su participación en cada una de las variables. A continuación se detallan algunos casos particulares: 
 
-#### Análisis en comparación con base de la muestra
+- CABA tiene un 7% de las viviendas totales y sus BP solo representan 0,5% de la superficie total de BP en el país. 
+- Misiones tiene un 8,8% de la superficie total de BP en el país, siendo la segunda provincia luego de Buenos Aires, pero solo un 4,8% del total de las viviendas en BP del país se encuentran allí. 
+- Buenos Aires destaca en todas las categorías, aunque con cierta dispersión. Más del 49% de las viviendas ubicadas en BP del país se encuentran en esta provincia, pero representa  el 34% de los barrios a nivel país. 
 
-(a) una visualización standard de los datos (esto sería, con geom_ de ggplot2 NO SIG. En este punto, es posible y valorable la utilización de geofacet como alternativa GEO); y
+### Uso de leatflet (VIZ)
 
-(b) una viz utilizando geom_sf como capa de la VIZ.
+Ahora veremos el mapa de un modo interactivo. Para ello, haremos varios análisis según categorías distintas: 
+
+#### Relación de hogares por superficie
+
+Se utilizará, a modo de proxy de densidad y hacinamiento, la relación entre la superficie y la cantidad de hogares a nivel promedio por BP. 
+
+Primero deberemos crear un nuevo campo. 
+
+```{r}
+# Calcula la relación entre superficie_m2 y cantidad_hogares cada 1 km²
+mapa_completo$viviendas_por_km2 <- round(mapa_completo$cantidad_viviendas_aproximadas / (mapa_completo$superficie_m2 / 1000000),2)
+```
+
+Ahora activamos las librerías que usaremos: 
+
+```{r}
+library(sf)
+library(leaflet) #Activamos librerías
+```
+
+Haremos un leaflet para ver cómo se ve el mapa analizado desde esta dimensión: 
+
+```{r}
+mapa_completo_mapageo <- st_as_sf(mapa_completo)
+
+pal_km2 <- colorNumeric("Blues", domain = mapa_completo_mapageo$viviendas_por_km2)
+
+leaflet(st_zm(mapa_completo_mapageo) %>% st_transform(4326)) %>%
+  addTiles() %>%
+  #setView(lat=-34.5828, lng=-58.3792,zoom=16)%>%
+  addProviderTiles(providers$CartoDB.Positron, group = "OSM",
+                   options = providerTileOptions(minzoom = 1, maxzoom = 15)) %>%
+  addLayersControl(
+    baseGroups = c("OSM","Satelite"), 
+    overlayGroups = c("Cant. viviendas por km2"))%>%
+  addPolygons(data = (st_zm(mapa_completo_mapageo) %>% st_transform(4326)),
+              fillColor = ~pal_km2(viviendas_por_km2),
+              weight = 1,
+              color = "black",
+              fillOpacity = 0.7,
+              popup = ~paste("<strong> Provincia: </strong>", name_prov, "<br> <strong> Cantidad BP en la provincia: </strong>", viviendas_por_km2),
+              group = "Cant. BP por Provincia")
+```
+Como podemos observar haciendo zoom, CABA nos distorsiona toda la escala debido a que es un valor extremo. Para ello, haremos el mismo ejercicio pero filtrando CABA.
+
+```{r}
+mapa_completo_mapageo <- mapa_completo[mapa_completo$name_prov != "CABA",]
+
+pal_km2 <- colorNumeric("Blues", domain = mapa_completo_mapageo$viviendas_por_km2)
+
+leaflet(st_zm(mapa_completo_mapageo) %>% st_transform(4326)) %>%
+  addTiles() %>%
+  #setView(lat=-34.5828, lng=-58.3792,zoom=16)%>%
+  addProviderTiles(providers$CartoDB.Positron, group = "OSM",
+                   options = providerTileOptions(minzoom = 1, maxzoom = 15)) %>%
+  addLayersControl(
+    baseGroups = c("OSM","Satelite"), 
+    overlayGroups = c("Cant. viviendas por km2"))%>%
+  addPolygons(data = (st_zm(mapa_completo_mapageo) %>% st_transform(4326)),
+              fillColor = ~pal_km2(viviendas_por_km2),
+              weight = 1,
+              color = "black",
+              fillOpacity = 0.7,
+              popup = ~paste("<strong> Provincia: </strong>", name_prov, "<br> <strong> Cant. viviendas / km2: </strong>", viviendas_por_km2),
+              group = "Cant. BP por Provincia")
+```
+Ahora podemos observar mucho mejor las variaciones. En este caso, las provincias de Jujuy, Buenos Aires y Santa Fe son las que lideran el ranking, luego de CABA. Estos valores se pueden considerar un buen proxy de densidad y hacinamiento dentro de los barrios populares de cada provincia. Como vemos, mientras más al sur nos encontramos, menor es la densidad. Si esta variable fuera un proxy de complejidad de re-urbanización o intervención orientada a la integración urbana, las provincias en tonos más oscuros indicarían mayor complejidad. 
+
+Veamos estos valores en forma de tabla ordenados de mayor a menor. 
+
+```{r}
+mapa_completo_mapageo <- mapa_completo #Volvemos a incluir CABA
+# Crea una tabla interactiva
+datatable(mapa_completo_mapageo[, c("name_prov", "viviendas_por_km2")],
+          options = list(pageLength = 24))  # Puedes ajustar el número de filas por página según sea necesario
+```
+Como podemos observar, CABA tiene una densidad de viviendas por km2 amoliamente superior a la segunda provincia (Jujuy), lo que da la pauta de que son barrios populares altamente densificados y con probabilidad alta de hacinamiento. 
+
+#### Cantidad y Porcentaje de Barrios Populares por Provincia sobre Total País
+
+Ahora visualizremos la cantidad de barrios populares por provincia y el porcentaje que representa cada una de ellas sobre el total país. 
+
+```{r}
+pal_cant_bar <- colorNumeric("Blues", domain = mapa_completo_mapageo$cantidad_barrios)
+pal_porc_bar <- colorNumeric("Blues", domain = mapa_completo_mapageo$porcentaje_barrios)
+
+
+leaflet(st_zm(mapa_completo_mapageo) %>% st_transform(4326)) %>%
+  addTiles() %>%
+  #setView(lat=-34.5828, lng=-58.3792,zoom=16)%>%
+  addProviderTiles(providers$CartoDB.Positron, group = "OSM",
+                   options = providerTileOptions(minzoom = 1, maxzoom = 15)) %>%
+  addLayersControl(
+    baseGroups = c("OSM","Satelite"), 
+    overlayGroups = c("Cant. BP por Provincia", "Porcentaje BP por Provincia sobre Total País"))%>%
+  addPolygons(data = (st_zm(mapa_completo_mapageo) %>% st_transform(4326)),
+              fillColor = ~pal_cant_bar(cantidad_barrios),
+              weight = 1,
+              color = "black",
+              fillOpacity = 0.7,
+              popup = ~paste("<strong> Provincia: </strong>", name_prov, "<br> <strong> Cantidad BP en la provincia: </strong>", cantidad_barrios),
+              group = "Cant. BP por Provincia") %>%
+  addPolygons(data = (st_zm(mapa_completo_mapageo) %>% st_transform(4326)),
+              fillColor = ~pal_porc_bar(porcentaje_barrios),
+              weight = 1,
+              color = "black",
+              fillOpacity = 0.7,
+              popup = ~paste("<strong> Provincia: </strong>",name_prov, "<br> <strong> Porcentaje BP sobre Total País: </strong>", porcentaje_barrios,"%"),
+              group = "Porcentaje BP sobre Total País")
+```
+
+
+
 
 
